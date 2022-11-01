@@ -1,5 +1,6 @@
 package io.archura.platform.imperativeshell.pre.filter.tracing;
 
+import io.archura.platform.api.attribute.TraceKeys;
 import io.archura.platform.api.context.Context;
 import io.archura.platform.api.http.HttpServerRequest;
 import io.archura.platform.api.logger.Logger;
@@ -16,8 +17,7 @@ import static java.util.Objects.nonNull;
 
 public class TracingFilter implements Consumer<HttpServerRequest>, Configurable {
 
-    public static final String TRACE_HEADER_NAME = "X-A-Trace-ID";
-    public static final String SPAN_HEADER_NAME = "X-A-Span-ID";
+    private static final String CONFIG_KEY_HEADERS = "headers";
     private Map<String, Object> configuration = new HashMap<>();
 
     @Override
@@ -27,19 +27,35 @@ public class TracingFilter implements Consumer<HttpServerRequest>, Configurable 
         final UUID uuid = UUID.randomUUID();
         final long currentTime = System.currentTimeMillis();
 
-        final String spanHeaderName = String.valueOf(configuration.getOrDefault("SpanHeaderName", SPAN_HEADER_NAME));
-        final String requestSpanId = request.getFirstHeader(spanHeaderName);
+        final String requestSpanId = request.getFirstHeader(TraceKeys.SPAN_HEADER_NAME.getKey());
         if (isNull(requestSpanId)) {
             final String newSpanId = String.format("%s|%s", currentTime, uuid);
-            request.getRequestHeaders().put(spanHeaderName, List.of(newSpanId));
+            request.getRequestHeaders().put(TraceKeys.SPAN_HEADER_NAME.getKey(), List.of(newSpanId));
         }
-        final String currentSpanId = request.getFirstHeader(spanHeaderName);
+        final String currentSpanId = request.getFirstHeader(TraceKeys.SPAN_HEADER_NAME.getKey());
 
-        final String traceHeaderName = String.valueOf(configuration.getOrDefault("TraceHeaderName", TRACE_HEADER_NAME));
         final String traceId = String.format("%s|%s", currentTime, uuid);
-        request.getRequestHeaders().put(traceHeaderName, List.of(traceId));
+        request.getRequestHeaders().put(TraceKeys.TRACE_HEADER_NAME.getKey(), List.of(traceId));
 
-        logger.debug("Span header: '%s', value: '%s', Trace header: '%s', value: '%s'", spanHeaderName, currentSpanId, traceHeaderName, traceId);
+        request.getAttributes().put(TraceKeys.SPAN_HEADER_NAME.getKey(), requestSpanId);
+        request.getAttributes().put(TraceKeys.TRACE_HEADER_NAME.getKey(), traceId);
+        request.getAttributes().put(TraceKeys.SPAN_REQUEST_URL.getKey(), request.getRequestURI().toString());
+        request.getAttributes().put(TraceKeys.SPAN_HTTP_METHOD.getKey(), request.getRequestMethod());
+        if (configuration.containsKey(CONFIG_KEY_HEADERS)
+                && nonNull(configuration.get(CONFIG_KEY_HEADERS))
+                && configuration.get(CONFIG_KEY_HEADERS) instanceof List<?> headerNames) {
+            final Map<String, List<String>> headerValueMap = new HashMap<>();
+            for (Object headerNameObject : headerNames) {
+                final String headerName = String.valueOf(headerNameObject);
+                final List<String> headerValues = request.getRequestHeaders().get(headerName);
+                if (nonNull(headerValues)) {
+                    headerValueMap.put(headerName, headerValues);
+                }
+            }
+            request.getAttributes().put(TraceKeys.SPAN_HEADERS.getKey(), headerValueMap);
+        }
+
+        logger.debug("Span header: '%s', value: '%s', Trace header: '%s', value: '%s'", TraceKeys.SPAN_HEADER_NAME.getKey(), currentSpanId, TraceKeys.TRACE_HEADER_NAME.getKey(), traceId);
     }
 
     @Override
